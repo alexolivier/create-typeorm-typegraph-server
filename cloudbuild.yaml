@@ -1,0 +1,39 @@
+steps:
+  - name: 'gcr.io/cloud-builders/docker'
+    args: ['build', '-t', 'eu.gcr.io/$PROJECT_ID/$REPO_NAME:$SHORT_SHA',  '-t', 'eu.gcr.io/$PROJECT_ID/$REPO_NAME:latest', '.']
+  - id: install
+    name: node:10
+    entrypoint: sh
+    args:
+      - '-c'
+      - 'npm install'
+    waitFor: ['-']
+  - id: proxy
+    name: gcr.io/cloudsql-docker/gce-proxy:1.15
+    entrypoint: sh
+    args:
+      - '-c'
+      - '/cloud_sql_proxy -dir=/cloudsql -instances=$PROJECT_ID:europe-west1:db=unix:/cloudsql/db & while [ ! -f /cloudsql/stop ]; do sleep 2; done'
+    waitFor: ['-']
+    timeout: '600s'
+    volumes:
+      - name: db
+        path: /cloudsql
+  - id: migrate
+    name: node:10
+    entrypoint: sh
+    args:
+      - '-c'
+      - 'TYPEORM_CONNECTION=mysql TYPEORM_DRIVER_EXTRA=$_TYPEORM_DRIVER_EXTRA TYPEORM_DATABASE=$_TYPEORM_DATABASE TYPEORM_USERNAME=$_TYPEORM_USERNAME TYPEORM_PASSWORD=$_TYPEORM_PASSWORD TYPEORM_ENTITIES=src/entity/**/*.ts TYPEORM_MIGRATIONS=src/migration/**/*.ts npm run migrate && touch /cloudsql/stop'
+    timeout: '600s'
+    waitFor: ['install']
+    volumes:
+      - name: db
+        path: /cloudsql
+  # - name: 'gcr.io/cloud-builders/docker'
+  #   args: ['push', 'eu.gcr.io/$PROJECT_ID/$REPO_NAME:$SHORT_SHA']
+  # - name: 'gcr.io/cloud-builders/gcloud'
+  #   args: ['run', 'deploy', 'website', '--image', 'eu.gcr.io/$PROJECT_ID/$REPO_NAME:$SHORT_SHA', '--region', 'europe-west1', '--platform', 'managed', '--allow-unauthenticated']
+images:
+  - eu.gcr.io/$PROJECT_ID/$REPO_NAME:$SHORT_SHA
+  - eu.gcr.io/$PROJECT_ID/$REPO_NAME:latest
